@@ -3,12 +3,11 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = ["route53.go"],
-    importpath = "github.com/jetstack/cert-manager/pkg/issuer/acme/dns/route53",
+    importpath = "github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/route53",
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/issuer/acme/dns/util:go_default_library",
         "//pkg/logs:go_default_library",
-        "//pkg/util:go_default_library",
         "@com_github_aws_aws_sdk_go//aws:go_default_library",
         "@com_github_aws_aws_sdk_go//aws/awserr:go_default_library",
         "@com_github_aws_aws_sdk_go//aws/credentials:go_default_library",

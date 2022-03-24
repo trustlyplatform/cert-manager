@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	apiutil "github.com/jetstack/cert-manager/pkg/api/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	authzv1 "k8s.io/api/authorization/v1"
@@ -36,16 +35,15 @@ import (
 	coretesting "k8s.io/client-go/testing"
 	fakeclock "k8s.io/utils/clock/testing"
 
-	cmacme "github.com/jetstack/cert-manager/pkg/apis/acme/v1"
-	"github.com/jetstack/cert-manager/pkg/apis/certmanager"
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	cmclient "github.com/jetstack/cert-manager/pkg/client/clientset/versioned"
-	"github.com/jetstack/cert-manager/pkg/controller/certificatesigningrequests"
-	"github.com/jetstack/cert-manager/pkg/controller/certificatesigningrequests/util"
-	testpkg "github.com/jetstack/cert-manager/pkg/controller/test"
-	"github.com/jetstack/cert-manager/pkg/util/pki"
-	"github.com/jetstack/cert-manager/test/unit/gen"
+	cmacme "github.com/cert-manager/cert-manager/pkg/apis/acme/v1"
+	"github.com/cert-manager/cert-manager/pkg/apis/certmanager"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	cmclient "github.com/cert-manager/cert-manager/pkg/client/clientset/versioned"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificatesigningrequests/util"
+	testpkg "github.com/cert-manager/cert-manager/pkg/controller/test"
+	"github.com/cert-manager/cert-manager/pkg/util/pki"
+	"github.com/cert-manager/cert-manager/test/unit/gen"
 )
 
 var (
@@ -135,7 +133,7 @@ func Test_controllerBuilder(t *testing.T) {
 			}
 			b.Init()
 
-			queue, hasSynced, err := controllerBuilder(b.Context).Register(b.Context)
+			queue, hasSynced, err := controllerBuilder().Register(b.Context)
 			require.NoError(t, err)
 
 			b.Start()
@@ -917,9 +915,7 @@ func Test_ProcessItem(t *testing.T) {
 
 			defer test.builder.Stop()
 
-			acme := NewACME(test.builder.Context)
-
-			controller := certificatesigningrequests.New(apiutil.IssuerACME, acme)
+			controller := controllerBuilder()
 			controller.Register(test.builder.Context)
 
 			test.builder.Start()

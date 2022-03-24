@@ -26,11 +26,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
-	"github.com/jetstack/cert-manager/internal/ingress"
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	controllerpkg "github.com/jetstack/cert-manager/pkg/controller"
-	shimhelper "github.com/jetstack/cert-manager/pkg/controller/certificate-shim"
-	logf "github.com/jetstack/cert-manager/pkg/logs"
+	"github.com/cert-manager/cert-manager/internal/ingress"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	controllerpkg "github.com/cert-manager/cert-manager/pkg/controller"
+	shimhelper "github.com/cert-manager/cert-manager/pkg/controller/certificate-shim"
+	logf "github.com/cert-manager/cert-manager/pkg/logs"
 )
 
 const (
@@ -151,7 +151,7 @@ func certificateHandler(queue workqueue.RateLimitingInterface) func(obj interfac
 }
 
 func init() {
-	controllerpkg.Register(ControllerName, func(ctx *controllerpkg.Context) (controllerpkg.Interface, error) {
+	controllerpkg.Register(ControllerName, func(ctx *controllerpkg.ContextFactory) (controllerpkg.Interface, error) {
 		return controllerpkg.NewBuilder(ctx, ControllerName).
 			For(&controller{}).
 			Complete()

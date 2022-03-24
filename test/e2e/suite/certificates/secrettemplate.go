@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package secrettemplate
+package certificates
 
 import (
 	"bytes"
@@ -29,23 +29,52 @@ import (
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
 
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	"github.com/jetstack/cert-manager/test/e2e/framework"
-	e2eutil "github.com/jetstack/cert-manager/test/e2e/util"
-	"github.com/jetstack/cert-manager/test/unit/gen"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	"github.com/cert-manager/cert-manager/test/e2e/framework"
+	e2eutil "github.com/cert-manager/cert-manager/test/e2e/util"
+	"github.com/cert-manager/cert-manager/test/unit/gen"
 	applycorev1 "k8s.io/client-go/applyconfigurations/core/v1"
-)
-
-const (
-	issuerName = "certificate-secret-template"
-	secretName = "test-secret-template"
 )
 
 // This test ensures that the Certificates SecretTemplate is reflected on the
 // Certificate's target Secret, and is reconciled on modify events.
 var _ = framework.CertManagerDescribe("Certificate SecretTemplate", func() {
+	const (
+		issuerName = "certificate-secret-template"
+		secretName = "test-secret-template"
+	)
+
 	f := framework.NewDefaultFramework("certificates-secret-template")
+
+	createCertificate := func(f *framework.Framework, secretTemplate *cmapi.CertificateSecretTemplate) *cmapi.Certificate {
+		crt := &cmapi.Certificate{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-secret-template-",
+				Namespace:    f.Namespace.Name,
+			},
+			Spec: cmapi.CertificateSpec{
+				CommonName: "test",
+				SecretName: secretName,
+				IssuerRef: cmmeta.ObjectReference{
+					Name:  issuerName,
+					Kind:  "Issuer",
+					Group: "cert-manager.io",
+				},
+				SecretTemplate: secretTemplate,
+			},
+		}
+
+		By("creating Certificate with SecretTemplate")
+
+		crt, err := f.CertManagerClientSet.CertmanagerV1().Certificates(f.Namespace.Name).Create(context.Background(), crt, metav1.CreateOptions{})
+		Expect(err).NotTo(HaveOccurred())
+
+		crt, err = f.Helper().WaitForCertificateReadyAndDoneIssuing(crt, time.Second*30)
+		Expect(err).NotTo(HaveOccurred(), "failed to wait for Certificate to become Ready")
+
+		return crt
+	}
 
 	BeforeEach(func() {
 		By("creating a self-signing issuer")
@@ -266,10 +295,9 @@ var _ = framework.CertManagerDescribe("Certificate SecretTemplate", func() {
 
 			var managedLabels, managedAnnotations []string
 			for _, managedField := range secret.ManagedFields {
-				// The manager of the controller is currently "controller" which is
-				// based on the user agent of the controller binary. This manager name
-				// would change if the User Agent is changed.
-				if managedField.Manager != "controller" || managedField.FieldsV1 == nil {
+				// The field manager of the issuing controller is currently
+				// "cert-manager-certificates-issuing".
+				if managedField.Manager != "cert-manager-certificates-issuing" || managedField.FieldsV1 == nil {
 					continue
 				}
 
@@ -422,32 +450,3 @@ var _ = framework.CertManagerDescribe("Certificate SecretTemplate", func() {
 		Expect(secret.Labels).ToNot(HaveKey("label"))
 	})
 })
-
-func createCertificate(f *framework.Framework, secretTemplate *cmapi.CertificateSecretTemplate) *cmapi.Certificate {
-	crt := &cmapi.Certificate{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "test-secret-template-",
-			Namespace:    f.Namespace.Name,
-		},
-		Spec: cmapi.CertificateSpec{
-			CommonName: "test",
-			SecretName: secretName,
-			IssuerRef: cmmeta.ObjectReference{
-				Name:  issuerName,
-				Kind:  "Issuer",
-				Group: "cert-manager.io",
-			},
-			SecretTemplate: secretTemplate,
-		},
-	}
-
-	By("creating Certificate with SecretTemplate")
-
-	crt, err := f.CertManagerClientSet.CertmanagerV1().Certificates(f.Namespace.Name).Create(context.Background(), crt, metav1.CreateOptions{})
-	Expect(err).NotTo(HaveOccurred())
-
-	crt, err = f.Helper().WaitForCertificateReadyAndDoneIssuing(crt, time.Second*30)
-	Expect(err).NotTo(HaveOccurred(), "failed to wait for Certificate to become Ready")
-
-	return crt
-}

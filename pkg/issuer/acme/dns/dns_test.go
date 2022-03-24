@@ -24,15 +24,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 
-	cmacme "github.com/jetstack/cert-manager/pkg/apis/acme/v1"
-	v1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	"github.com/jetstack/cert-manager/pkg/controller"
-	"github.com/jetstack/cert-manager/pkg/controller/test"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/acmedns"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/cloudflare"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/util"
+	cmacme "github.com/cert-manager/cert-manager/pkg/apis/acme/v1"
+	v1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	"github.com/cert-manager/cert-manager/pkg/controller"
+	"github.com/cert-manager/cert-manager/pkg/controller/test"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/acmedns"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/cloudflare"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/util"
 )
 
 func newIssuer(name, namespace string) *v1.Issuer {
@@ -417,8 +418,11 @@ func TestRoute53AmbientCreds(t *testing.T) {
 			solverFixture{
 				Builder: &test.Builder{
 					Context: &controller.Context{
-						IssuerOptions: controller.IssuerOptions{
-							IssuerAmbientCredentials: true,
+						RESTConfig: new(rest.Config),
+						ContextOptions: controller.ContextOptions{
+							IssuerOptions: controller.IssuerOptions{
+								IssuerAmbientCredentials: true,
+							},
 						},
 					},
 				},
@@ -447,8 +451,11 @@ func TestRoute53AmbientCreds(t *testing.T) {
 			solverFixture{
 				Builder: &test.Builder{
 					Context: &controller.Context{
-						IssuerOptions: controller.IssuerOptions{
-							IssuerAmbientCredentials: false,
+						RESTConfig: new(rest.Config),
+						ContextOptions: controller.ContextOptions{
+							IssuerOptions: controller.IssuerOptions{
+								IssuerAmbientCredentials: false,
+							},
 						},
 					},
 				},
@@ -507,8 +514,11 @@ func TestRoute53AssumeRole(t *testing.T) {
 			solverFixture{
 				Builder: &test.Builder{
 					Context: &controller.Context{
-						IssuerOptions: controller.IssuerOptions{
-							IssuerAmbientCredentials: true,
+						RESTConfig: new(rest.Config),
+						ContextOptions: controller.ContextOptions{
+							IssuerOptions: controller.IssuerOptions{
+								IssuerAmbientCredentials: true,
+							},
 						},
 					},
 				},
@@ -538,8 +548,11 @@ func TestRoute53AssumeRole(t *testing.T) {
 			solverFixture{
 				Builder: &test.Builder{
 					Context: &controller.Context{
-						IssuerOptions: controller.IssuerOptions{
-							IssuerAmbientCredentials: false,
+						RESTConfig: new(rest.Config),
+						ContextOptions: controller.ContextOptions{
+							IssuerOptions: controller.IssuerOptions{
+								IssuerAmbientCredentials: false,
+							},
 						},
 					},
 				},

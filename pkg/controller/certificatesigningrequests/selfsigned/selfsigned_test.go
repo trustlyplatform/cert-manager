@@ -38,16 +38,17 @@ import (
 	coretesting "k8s.io/client-go/testing"
 	fakeclock "k8s.io/utils/clock/testing"
 
-	apiutil "github.com/jetstack/cert-manager/pkg/api/util"
-	"github.com/jetstack/cert-manager/pkg/apis/certmanager"
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	"github.com/jetstack/cert-manager/pkg/controller/certificatesigningrequests"
-	"github.com/jetstack/cert-manager/pkg/controller/certificatesigningrequests/util"
-	testpkg "github.com/jetstack/cert-manager/pkg/controller/test"
-	"github.com/jetstack/cert-manager/pkg/util/pki"
-	"github.com/jetstack/cert-manager/test/unit/gen"
-	testlisters "github.com/jetstack/cert-manager/test/unit/listers"
+	apiutil "github.com/cert-manager/cert-manager/pkg/api/util"
+	"github.com/cert-manager/cert-manager/pkg/apis/certmanager"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	"github.com/cert-manager/cert-manager/pkg/controller"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificatesigningrequests"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificatesigningrequests/util"
+	testpkg "github.com/cert-manager/cert-manager/pkg/controller/test"
+	"github.com/cert-manager/cert-manager/pkg/util/pki"
+	"github.com/cert-manager/cert-manager/test/unit/gen"
+	testlisters "github.com/cert-manager/cert-manager/test/unit/listers"
 )
 
 var (
@@ -655,7 +656,7 @@ func TestProcessItem(t *testing.T) {
 
 			defer test.builder.Stop()
 
-			selfsigned := NewSelfSigned(test.builder.Context)
+			selfsigned := NewSelfSigned(test.builder.Context).(*SelfSigned)
 
 			if test.fakeLister != nil {
 				selfsigned.secretsLister = test.fakeLister
@@ -665,7 +666,10 @@ func TestProcessItem(t *testing.T) {
 				selfsigned.signingFn = test.signingFn
 			}
 
-			controller := certificatesigningrequests.New(apiutil.IssuerSelfSigned, selfsigned)
+			controller := certificatesigningrequests.New(
+				apiutil.IssuerSelfSigned,
+				func(*controller.Context) certificatesigningrequests.Signer { return selfsigned },
+			)
 			controller.Register(test.builder.Context)
 			test.builder.Start()
 
@@ -722,7 +726,7 @@ func TestSign(t *testing.T) {
 				// Note that we do have a plan to fix this. We want to be
 				// injecting a time (instead of time.Now) to the template
 				// functions. This work is being tracked in this issue:
-				// https://github.com/jetstack/cert-manager/issues/3738
+				// https://github.com/cert-manager/cert-manager/issues/3738
 				expectNotAfter := time.Now().UTC().Add(30 * time.Minute)
 				deltaSec := math.Abs(expectNotAfter.Sub(got.NotAfter).Seconds())
 				assert.LessOrEqualf(t, deltaSec, 2., "expected a time delta lower than 2 second. Time expected='%s', got='%s'", expectNotAfter.String(), got.NotAfter.String())

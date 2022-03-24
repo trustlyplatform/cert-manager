@@ -18,22 +18,29 @@ package issuing
 
 import (
 	"context"
+	"encoding/pem"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	"github.com/jetstack/cert-manager/pkg/controller/certificates/internal/secretsmanager"
-	internaltest "github.com/jetstack/cert-manager/pkg/controller/certificates/internal/test"
-	testpkg "github.com/jetstack/cert-manager/pkg/controller/test"
-	"github.com/jetstack/cert-manager/test/unit/gen"
+	"github.com/cert-manager/cert-manager/internal/controller/certificates/policies"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificates/issuing/internal"
+	testpkg "github.com/cert-manager/cert-manager/pkg/controller/test"
+	testcrypto "github.com/cert-manager/cert-manager/test/unit/crypto"
 )
 
 func Test_ensureSecretData(t *testing.T) {
 	const fieldManager = "cert-manager-unit-tests"
+
+	pk := testcrypto.MustCreatePEMPrivateKey(t)
+	cert := testcrypto.MustCreateCert(t, pk, &cmapi.Certificate{Spec: cmapi.CertificateSpec{CommonName: "test"}})
+	block, _ := pem.Decode(pk)
+	pkDER := block.Bytes
+	combinedPEM := append(append(pk, '\n'), cert...)
 
 	tests := map[string]struct {
 		// key that should be passed to ProcessItem.
@@ -62,7 +69,57 @@ func Test_ensureSecretData(t *testing.T) {
 			key:            "random-namespace/random-certificate",
 			expectedAction: false,
 		},
-		"if Certificate and Secret exists, but the Certificate has a True Issuing condition, do nothing": {key: "test-namespace/test-name",
+		"if Certificate and Secret exists, but the Secret contains no certificate or private key data, do nothing": {
+			key: "test-namespace/test-name",
+			cert: &cmapi.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
+				Spec: cmapi.CertificateSpec{
+					SecretName:     "test-secret",
+					SecretTemplate: &cmapi.CertificateSecretTemplate{Annotations: map[string]string{"foo": "bar"}, Labels: map[string]string{"abc": "123"}},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret"},
+				Data:       map[string][]byte{},
+			},
+			expectedAction: false,
+		},
+		"if Certificate and Secret exists, but the Secret contains no certificate data, do nothing": {
+			key: "test-namespace/test-name",
+			cert: &cmapi.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
+				Spec: cmapi.CertificateSpec{
+					SecretName:     "test-secret",
+					SecretTemplate: &cmapi.CertificateSecretTemplate{Annotations: map[string]string{"foo": "bar"}, Labels: map[string]string{"abc": "123"}},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret"},
+				Data: map[string][]byte{
+					"tls.key": pk,
+				},
+			},
+			expectedAction: false,
+		},
+		"if Certificate and Secret exists, but the Secret contains no private key data, do nothing": {
+			key: "test-namespace/test-name",
+			cert: &cmapi.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
+				Spec: cmapi.CertificateSpec{
+					SecretName:     "test-secret",
+					SecretTemplate: &cmapi.CertificateSecretTemplate{Annotations: map[string]string{"foo": "bar"}, Labels: map[string]string{"abc": "123"}},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret"},
+				Data: map[string][]byte{
+					"tls.cert": cert,
+				},
+			},
+			expectedAction: false,
+		},
+		"if Certificate and Secret exists, but the Certificate has a True Issuing condition, do nothing": {
+			key: "test-namespace/test-name",
 			cert: &cmapi.Certificate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
 				Spec: cmapi.CertificateSpec{
@@ -75,6 +132,10 @@ func Test_ensureSecretData(t *testing.T) {
 			},
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret"},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
+				},
 			},
 			expectedAction: false,
 		},
@@ -107,6 +168,10 @@ func Test_ensureSecretData(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "test-namespace", Name: "test-secret",
 					Annotations: map[string]string{"foo": "bar"}, Labels: map[string]string{"abc": "123"},
+				},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
 				},
 			},
 			expectedAction: true,
@@ -143,6 +208,10 @@ func Test_ensureSecretData(t *testing.T) {
 						},
 					}},
 				},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
+				},
 			},
 			expectedAction: true,
 		},
@@ -175,6 +244,10 @@ func Test_ensureSecretData(t *testing.T) {
 						}}`),
 						}},
 					},
+				},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
 				},
 			},
 			expectedAction: true,
@@ -209,6 +282,10 @@ func Test_ensureSecretData(t *testing.T) {
 						}},
 					},
 				},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
+				},
 			},
 			expectedAction: false,
 		},
@@ -229,6 +306,134 @@ func Test_ensureSecretData(t *testing.T) {
 			},
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret"},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
+				},
+			},
+			expectedAction: true,
+		},
+		"if Certificate with combined pem and Secret exists, but the Secret doesn't have combined pem, should apply the combined pem": {
+			key: "test-namespace/test-name",
+			cert: &cmapi.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
+				Spec: cmapi.CertificateSpec{
+					SecretName: "test-secret",
+					AdditionalOutputFormats: []cmapi.CertificateAdditionalOutputFormat{
+						{Type: "CombinedPEM"},
+					},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret"},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
+				},
+			},
+			expectedAction: true,
+		},
+		"if Certificate with der and Secret exists, but the Secret doesn't have der, should apply the der": {
+			key: "test-namespace/test-name",
+			cert: &cmapi.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
+				Spec: cmapi.CertificateSpec{
+					SecretName: "test-secret",
+					AdditionalOutputFormats: []cmapi.CertificateAdditionalOutputFormat{
+						{Type: "DER"},
+					},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret"},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
+				},
+			},
+			expectedAction: true,
+		},
+		"if Certificate with combined pem and der, and Secret exists, but the Secret doesn't have combined pem or der, should apply the combined pem and der": {
+			key: "test-namespace/test-name",
+			cert: &cmapi.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
+				Spec: cmapi.CertificateSpec{
+					SecretName: "test-secret",
+					AdditionalOutputFormats: []cmapi.CertificateAdditionalOutputFormat{
+						{Type: "CombinedPEM"},
+						{Type: "DER"},
+					},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret"},
+				Data: map[string][]byte{
+					"tls.crt": cert,
+					"tls.key": pk,
+				},
+			},
+			expectedAction: true,
+		},
+		"if Certificate with combined pem and der, and Secret exists with combined pem and der with managed fields, should do nothing": {
+			key: "test-namespace/test-name",
+			cert: &cmapi.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
+				Spec: cmapi.CertificateSpec{
+					SecretName: "test-secret",
+					AdditionalOutputFormats: []cmapi.CertificateAdditionalOutputFormat{
+						{Type: "CombinedPEM"},
+						{Type: "DER"},
+					},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret",
+					ManagedFields: []metav1.ManagedFieldsEntry{{
+						Manager: fieldManager,
+						FieldsV1: &metav1.FieldsV1{
+							Raw: []byte(`{"f:data": {
+							"f:tls-combined.pem": {},
+							"f:key.der": {}
+						}}`),
+						},
+					}},
+				},
+				Data: map[string][]byte{
+					"tls.crt":          cert,
+					"tls.key":          pk,
+					"tls-combined.pem": combinedPEM,
+					"key.der":          pkDER,
+				},
+			},
+			expectedAction: false,
+		},
+		"if Certificate with no combined pem or der, and Secret exists with combined pem and der managed by field manager, should apply to remove them": {
+			key: "test-namespace/test-name",
+			cert: &cmapi.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-name"},
+				Spec: cmapi.CertificateSpec{
+					SecretName:              "test-secret",
+					AdditionalOutputFormats: []cmapi.CertificateAdditionalOutputFormat{},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "test-secret",
+					ManagedFields: []metav1.ManagedFieldsEntry{{
+						Manager: fieldManager,
+						FieldsV1: &metav1.FieldsV1{
+							Raw: []byte(`{"f:data": {
+							"f:tls-combined.pem": {},
+							"f:key.der": {}
+						}}`),
+						},
+					}},
+				},
+				Data: map[string][]byte{
+					"tls.crt":          cert,
+					"tls.key":          pk,
+					"tls-combined.pem": combinedPEM,
+					"key.der":          pkDER,
+				},
 			},
 			expectedAction: true,
 		},
@@ -258,11 +463,11 @@ func Test_ensureSecretData(t *testing.T) {
 			assert.NoError(t, err)
 
 			var actionCalled bool
-			w.secretsUpdateData = func(_ context.Context, _ *cmapi.Certificate, _ secretsmanager.SecretData) error {
+			w.secretsUpdateData = func(_ context.Context, _ *cmapi.Certificate, _ internal.SecretData) error {
 				actionCalled = true
 				return nil
 			}
-			w.fieldManager = fieldManager
+			w.postIssuancePolicyChain = policies.NewSecretPostIssuancePolicyChain(fieldManager)
 
 			// Start the informers and begin processing updates.
 			builder.Start()
@@ -282,468 +487,6 @@ func Test_ensureSecretData(t *testing.T) {
 			}
 
 			assert.Equal(t, test.expectedAction, actionCalled, "unexpected Secret reconcile called")
-		})
-	}
-}
-
-func Test_secretTemplateMatchesManagedFields(t *testing.T) {
-	const fieldManager = "cert-manager-unit-test"
-
-	baseCertBundle := internaltest.MustCreateCryptoBundle(t, gen.Certificate("test-certificate",
-		gen.SetCertificateCommonName("cert-manager"),
-		gen.SetCertificateDNSNames("example.com", "cert-manager.io"),
-		gen.SetCertificateIPs("1.1.1.1", "1.2.3.4"),
-		gen.SetCertificateURIs("spiffe.io//cert-manager.io/test", "spiffe.io//hello.world"),
-	), fixedClock)
-
-	tests := map[string]struct {
-		tmpl     *cmapi.CertificateSecretTemplate
-		data     secretsmanager.SecretData
-		secret   []metav1.ManagedFieldsEntry
-		expMatch bool
-	}{
-		"if template is nil and no managed fields, should return true": {
-			tmpl:     nil,
-			secret:   nil,
-			expMatch: true,
-		},
-		"if template is nil, managed fields is not nil but not managed by cert-manager, should return true": {
-			tmpl: nil,
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: "not-cert-manager", FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:bar": {}
-							},
-							"f:labels": {
-								"f:123": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: true,
-		},
-		"if template is nil, managed fields is not nil but fields are nil, should return true": {
-			tmpl:     nil,
-			secret:   []metav1.ManagedFieldsEntry{{Manager: fieldManager, FieldsV1: nil}},
-			expMatch: true,
-		},
-		"if template is not-nil but managed fields is nil, should return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo": "bar"},
-				Labels:      map[string]string{"abc": "123"},
-			},
-			secret:   nil,
-			expMatch: false,
-		},
-		"if template is nil but managed fields is not nil, should return false": {
-			tmpl: nil,
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo": {}
-							},
-							"f:labels": {
-								"f:abc": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: false,
-		},
-		"if template annotations do not match managed fields, should return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo3": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:def": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: false,
-		},
-		"if template labels do not match managed fields, should return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:erg": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: false,
-		},
-		"if template annotations and labels match managed fields, should return true": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:def": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: true,
-		},
-		"if template annotations is a subset of managed fields, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {},
-								"f:foo3": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:def": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: false,
-		},
-		"if template labels is a subset of managed fields, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:def": {},
-								"f:ghi": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: false,
-		},
-		"if managed fields annotations is a subset of template, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2", "foo3": "bar3"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:def": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: false,
-		},
-		"if managed fields labels is a subset of template, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456", "ghi": "789"},
-			},
-			secret: []metav1.ManagedFieldsEntry{{
-				Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:def": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: false,
-		},
-		"if managed fields matches template but is split across multiple managed fields, should return true": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2", "foo3": "bar3"},
-				Labels:      map[string]string{"abc": "123", "def": "456", "ghi": "789"},
-			},
-			secret: []metav1.ManagedFieldsEntry{
-				{Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:labels": {
-								"f:ghi": {}
-							}
-						}}`),
-				}},
-				{Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo3": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:def": {}
-							}
-						}}`),
-				}},
-				{Manager: fieldManager,
-					FieldsV1: &metav1.FieldsV1{
-						Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {}
-							},
-							"f:labels": {
-								"f:abc": {},
-								"f:def": {}
-							}
-						}}`),
-					}},
-			},
-			expMatch: true,
-		},
-		"if managed fields matches template and base cert-manager annotations are present with no certificate data, should return true": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-			},
-			secret: []metav1.ManagedFieldsEntry{
-				{Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {},
-                "f:cert-manager.io/certificate-name": {},
-                "f:cert-manager.io/issuer-name": {},
-                "f:cert-manager.io/issuer-kind": {},
-                "f:cert-manager.io/issuer-group": {}
-							}
-						}}`),
-				}},
-			},
-			expMatch: true,
-		},
-		"if managed fields matches template and base cert-manager annotations are present with certificate data, should return true": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-			},
-			secret: []metav1.ManagedFieldsEntry{
-				{Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {},
-                "f:cert-manager.io/certificate-name": {},
-                "f:cert-manager.io/issuer-name": {},
-                "f:cert-manager.io/issuer-kind": {},
-                "f:cert-manager.io/issuer-group": {},
-				        "f:cert-manager.io/common-name": {},
-				        "f:cert-manager.io/alt-names":  {},
-				        "f:cert-manager.io/ip-sans": {},
-				        "f:cert-manager.io/uri-sans": {}
-							}
-						}}`),
-				}},
-			},
-			data:     secretsmanager.SecretData{Certificate: baseCertBundle.CertBytes},
-			expMatch: true,
-		},
-		"if managed fields matches template and base cert-manager annotations are present with certificate data but certificate data is nil, should return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-			},
-			secret: []metav1.ManagedFieldsEntry{
-				{Manager: fieldManager, FieldsV1: &metav1.FieldsV1{
-					Raw: []byte(`{"f:metadata": {
-							"f:annotations": {
-								"f:foo1": {},
-								"f:foo2": {},
-                "f:cert-manager.io/certificate-name": {},
-                "f:cert-manager.io/issuer-name": {},
-                "f:cert-manager.io/issuer-kind": {},
-                "f:cert-manager.io/issuer-group": {},
-				        "f:cert-manager.io/common-name": {},
-				        "f:cert-manager.io/alt-names":  {},
-				        "f:cert-manager.io/ip-sans": {},
-				        "f:cert-manager.io/uri-sans": {}
-							}
-						}}`),
-				}},
-			},
-			data:     secretsmanager.SecretData{Certificate: nil},
-			expMatch: false,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			c := &controller{fieldManager: fieldManager}
-
-			match, err := c.secretTemplateMatchesManagedFields(
-				&cmapi.Certificate{Spec: cmapi.CertificateSpec{SecretTemplate: test.tmpl}},
-				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{ManagedFields: test.secret}},
-				test.data,
-			)
-			assert.NoError(t, err)
-			assert.Equal(t, test.expMatch, match,
-				"Template=%v Secret=%v", test.tmpl, test.secret)
-		})
-	}
-}
-
-func Test_secretTemplateMatchesSecret(t *testing.T) {
-	tests := map[string]struct {
-		tmpl     *cmapi.CertificateSecretTemplate
-		secret   *corev1.Secret
-		expMatch bool
-	}{
-		"if SecretTemplate is nil, Secret Annotations and Labels are nil, return true": {
-			tmpl:     nil,
-			secret:   &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Annotations: nil, Labels: nil}},
-			expMatch: true,
-		},
-		"if SecretTemplate is nil, Secret Annotations are nil, Labels are non-nil, return true": {
-			tmpl:     nil,
-			secret:   &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Annotations: nil, Labels: map[string]string{"foo": "bar"}}},
-			expMatch: true,
-		},
-		"if SecretTemplate is nil, Secret Annotations are non-nil, Labels are nil, return true": {
-			tmpl:     nil,
-			secret:   &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"foo": "bar"}, Labels: nil}},
-			expMatch: true,
-		},
-		"if SecretTemplate is nil, Secret Annotations and Labels are non-nil, return true": {
-			tmpl: nil,
-			secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{"foo": "bar"},
-				Labels:      map[string]string{"bar": "foo"},
-			}},
-			expMatch: true,
-		},
-		"if SecretTemplate is non-nil, Secret Annotations match but Labels are nil, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      nil,
-			}},
-			expMatch: false,
-		},
-		"if SecretTemplate is non-nil, Secret Labels match but Annotations are nil, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-				Annotations: nil,
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			}},
-			expMatch: false,
-		},
-		"if SecretTemplate is non-nil, Secret Labels match but Annotations don't match keys, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{"foo2": "bar1", "foo1": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			}},
-			expMatch: false,
-		},
-		"if SecretTemplate is non-nil, Secret Annoations match but Labels don't match keys, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"def": "123", "abc": "456"},
-			}},
-			expMatch: false,
-		},
-		"if SecretTemplate is non-nil, Secret Labels match but Annotations don't match values, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{"foo1": "bar2", "foo2": "bar1"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			}},
-			expMatch: false,
-		},
-		"if SecretTemplate is non-nil, Secret Annotations match but Labels don't match values, return false": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "456", "def": "123"},
-			}},
-			expMatch: false,
-		},
-		"if SecretTemplate is non-nil, Secret Annotations and Labels match, return true": {
-			tmpl: &cmapi.CertificateSecretTemplate{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			},
-			secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{"foo1": "bar1", "foo2": "bar2"},
-				Labels:      map[string]string{"abc": "123", "def": "456"},
-			}},
-			expMatch: true,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, test.expMatch,
-				secretTemplateMatchesSecret(&cmapi.Certificate{Spec: cmapi.CertificateSpec{SecretTemplate: test.tmpl}}, test.secret),
-				"Template=%v Secret=%v", test.tmpl, test.secret,
-			)
 		})
 	}
 }

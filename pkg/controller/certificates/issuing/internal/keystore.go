@@ -20,7 +20,7 @@ limitations under the License.
 // release.
 // This should hopefully not exist by the next time you come to read this :)
 
-package secretsmanager
+package internal
 
 import (
 	"bytes"
@@ -31,7 +31,7 @@ import (
 	jks "github.com/pavel-v-chernykh/keystore-go/v4"
 	"software.sslmate.com/src/go-pkcs12"
 
-	"github.com/jetstack/cert-manager/pkg/util/pki"
+	"github.com/cert-manager/cert-manager/pkg/util/pki"
 )
 
 const (

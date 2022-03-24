@@ -30,26 +30,25 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
 
-	apiutil "github.com/jetstack/cert-manager/pkg/api/util"
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	cmclient "github.com/jetstack/cert-manager/pkg/client/clientset/versioned"
-	cminformers "github.com/jetstack/cert-manager/pkg/client/informers/externalversions"
-	cmlisters "github.com/jetstack/cert-manager/pkg/client/listers/certmanager/v1"
-	controllerpkg "github.com/jetstack/cert-manager/pkg/controller"
-	"github.com/jetstack/cert-manager/pkg/controller/certificates"
-	"github.com/jetstack/cert-manager/pkg/controller/certificates/internal/secretsmanager"
-	logf "github.com/jetstack/cert-manager/pkg/logs"
-	"github.com/jetstack/cert-manager/pkg/util"
-	utilkube "github.com/jetstack/cert-manager/pkg/util/kube"
-	utilpki "github.com/jetstack/cert-manager/pkg/util/pki"
-	"github.com/jetstack/cert-manager/pkg/util/predicate"
+	"github.com/cert-manager/cert-manager/internal/controller/certificates/policies"
+	apiutil "github.com/cert-manager/cert-manager/pkg/api/util"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	cmclient "github.com/cert-manager/cert-manager/pkg/client/clientset/versioned"
+	cminformers "github.com/cert-manager/cert-manager/pkg/client/informers/externalversions"
+	cmlisters "github.com/cert-manager/cert-manager/pkg/client/listers/certmanager/v1"
+	controllerpkg "github.com/cert-manager/cert-manager/pkg/controller"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificates"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificates/issuing/internal"
+	logf "github.com/cert-manager/cert-manager/pkg/logs"
+	utilkube "github.com/cert-manager/cert-manager/pkg/util/kube"
+	utilpki "github.com/cert-manager/cert-manager/pkg/util/pki"
+	"github.com/cert-manager/cert-manager/pkg/util/predicate"
 )
 
 const (
@@ -73,11 +72,11 @@ type controller struct {
 	// secretsUpdateData is used by the SecretTemplate controller for
 	// re-reconciling Secrets where the SecretTemplate is not up to date with a
 	// Certificate's secret.
-	secretsUpdateData func(context.Context, *cmapi.Certificate, secretsmanager.SecretData) error
+	secretsUpdateData func(context.Context, *cmapi.Certificate, internal.SecretData) error
 
-	// fieldManager is the string which will be used as the field Manager on
-	// fields created or edited by the cert-manager Kubernetes client.
-	fieldManager string
+	// postIssuancePolicyChain is the policies chain to ensure that all Secret
+	// metadata and output formats are kept are present and correct.
+	postIssuancePolicyChain policies.Chain
 
 	// localTemporarySigner signs a certificate that is stored temporarily
 	localTemporarySigner localTemporarySignerFn
@@ -86,7 +85,7 @@ type controller struct {
 func NewController(
 	log logr.Logger,
 	kubeClient kubernetes.Interface,
-	restConfig *rest.Config,
+	fieldManager string,
 	client cmclient.Interface,
 	factory informers.SharedInformerFactory,
 	cmFactory cminformers.SharedInformerFactory,
@@ -127,9 +126,9 @@ func NewController(
 		certificateInformer.Informer().HasSynced,
 	}
 
-	secretsManager := secretsmanager.New(
+	secretsManager := internal.NewSecretsManager(
 		kubeClient.CoreV1(), secretsInformer.Lister(),
-		restConfig, certificateControllerOptions.EnableOwnerRef,
+		fieldManager, certificateControllerOptions.EnableOwnerRef,
 	)
 
 	return &controller{
@@ -140,7 +139,7 @@ func NewController(
 		recorder:                 recorder,
 		clock:                    clock,
 		secretsUpdateData:        secretsManager.UpdateData,
-		fieldManager:             util.PrefixFromUserAgent(restConfig.UserAgent),
+		postIssuancePolicyChain:  policies.NewSecretPostIssuancePolicyChain(fieldManager),
 		localTemporarySigner:     certificates.GenerateLocallySignedTemporaryCertificate,
 	}, queue, mustSync
 }
@@ -363,7 +362,7 @@ func (c *controller) issueCertificate(ctx context.Context, nextRevision int, crt
 	if err != nil {
 		return err
 	}
-	secretData := secretsmanager.SecretData{
+	secretData := internal.SecretData{
 		PrivateKey:  pkData,
 		Certificate: req.Status.Certificate,
 		CA:          req.Status.CA,
@@ -405,7 +404,7 @@ func (c *controllerWrapper) Register(ctx *controllerpkg.Context) (workqueue.Rate
 
 	ctrl, queue, mustSync := NewController(log,
 		ctx.Client,
-		ctx.RESTConfig,
+		ctx.FieldManager,
 		ctx.CMClient,
 		ctx.KubeSharedInformerFactory,
 		ctx.SharedInformerFactory,
@@ -419,7 +418,7 @@ func (c *controllerWrapper) Register(ctx *controllerpkg.Context) (workqueue.Rate
 }
 
 func init() {
-	controllerpkg.Register(ControllerName, func(ctx *controllerpkg.Context) (controllerpkg.Interface, error) {
+	controllerpkg.Register(ControllerName, func(ctx *controllerpkg.ContextFactory) (controllerpkg.Interface, error) {
 		return controllerpkg.NewBuilder(ctx, ControllerName).
 			For(&controllerWrapper{}).
 			Complete()

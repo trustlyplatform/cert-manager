@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	logf "github.com/jetstack/cert-manager/pkg/logs"
+	logf "github.com/cert-manager/cert-manager/pkg/logs"
 
 	"github.com/go-logr/logr"
 
@@ -27,8 +27,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/aws/aws-sdk-go/service/sts/stsiface"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/util"
-	pkgutil "github.com/jetstack/cert-manager/pkg/util"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/util"
 )
 
 const (
@@ -41,6 +40,8 @@ type DNSProvider struct {
 	client           *route53.Route53
 	hostedZoneID     string
 	log              logr.Logger
+
+	userAgent string
 }
 
 type sessionProvider struct {
@@ -51,6 +52,7 @@ type sessionProvider struct {
 	Role            string
 	StsProvider     func(*session.Session) stsiface.STSAPI
 	log             logr.Logger
+	userAgent       string
 }
 
 func (d *sessionProvider) GetSession() (*session.Session, error) {
@@ -118,11 +120,11 @@ func (d *sessionProvider) GetSession() (*session.Session, error) {
 		sess.Config.WithRegion(d.Region)
 	}
 
-	sess.Handlers.Build.PushBack(request.WithAppendUserAgent(pkgutil.CertManagerUserAgent))
+	sess.Handlers.Build.PushBack(request.WithAppendUserAgent(d.userAgent))
 	return sess, nil
 }
 
-func newSessionProvider(accessKeyID, secretAccessKey, region, role string, ambient bool) (*sessionProvider, error) {
+func newSessionProvider(accessKeyID, secretAccessKey, region, role string, ambient bool, userAgent string) (*sessionProvider, error) {
 	return &sessionProvider{
 		AccessKeyID:     accessKeyID,
 		SecretAccessKey: secretAccessKey,
@@ -131,6 +133,7 @@ func newSessionProvider(accessKeyID, secretAccessKey, region, role string, ambie
 		Role:            role,
 		StsProvider:     defaultSTSProvider,
 		log:             logf.Log.WithName("route53-session-provider"),
+		userAgent:       userAgent,
 	}, nil
 }
 
@@ -141,8 +144,12 @@ func defaultSTSProvider(sess *session.Session) stsiface.STSAPI {
 // NewDNSProvider returns a DNSProvider instance configured for the AWS
 // Route 53 service using static credentials from its parameters or, if they're
 // unset and the 'ambient' option is set, credentials from the environment.
-func NewDNSProvider(accessKeyID, secretAccessKey, hostedZoneID, region, role string, ambient bool, dns01Nameservers []string) (*DNSProvider, error) {
-	provider, err := newSessionProvider(accessKeyID, secretAccessKey, region, role, ambient)
+func NewDNSProvider(accessKeyID, secretAccessKey, hostedZoneID, region, role string,
+	ambient bool,
+	dns01Nameservers []string,
+	userAgent string,
+) (*DNSProvider, error) {
+	provider, err := newSessionProvider(accessKeyID, secretAccessKey, region, role, ambient, userAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -159,13 +166,14 @@ func NewDNSProvider(accessKeyID, secretAccessKey, hostedZoneID, region, role str
 		hostedZoneID:     hostedZoneID,
 		dns01Nameservers: dns01Nameservers,
 		log:              logf.Log.WithName("route53"),
+		userAgent:        userAgent,
 	}, nil
 }
 
 // Present creates a TXT record using the specified parameters
 func (r *DNSProvider) Present(domain, fqdn, value string) error {
 	value = `"` + value + `"`
-	return r.changeRecord(route53.ChangeActionUpsert, fqdn, value, route53TTL)
+	return r.changeRecord(route53.ChangeActionCreate, fqdn, value, route53TTL)
 }
 
 // CleanUp removes the TXT record matching the specified parameters
@@ -273,9 +281,11 @@ func (r *DNSProvider) getHostedZoneID(fqdn string) (string, error) {
 
 func newTXTRecordSet(fqdn, value string, ttl int) *route53.ResourceRecordSet {
 	return &route53.ResourceRecordSet{
-		Name: aws.String(fqdn),
-		Type: aws.String(route53.RRTypeTxt),
-		TTL:  aws.Int64(int64(ttl)),
+		Name:             aws.String(fqdn),
+		Type:             aws.String(route53.RRTypeTxt),
+		TTL:              aws.Int64(int64(ttl)),
+		MultiValueAnswer: aws.Bool(true),
+		SetIdentifier:    aws.String(value),
 		ResourceRecords: []*route53.ResourceRecord{
 			{Value: aws.String(value)},
 		},

@@ -37,16 +37,17 @@ import (
 	coretesting "k8s.io/client-go/testing"
 	fakeclock "k8s.io/utils/clock/testing"
 
-	internalvault "github.com/jetstack/cert-manager/internal/vault"
-	fakevault "github.com/jetstack/cert-manager/internal/vault/fake"
-	apiutil "github.com/jetstack/cert-manager/pkg/api/util"
-	"github.com/jetstack/cert-manager/pkg/apis/certmanager"
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	"github.com/jetstack/cert-manager/pkg/controller/certificaterequests"
-	testpkg "github.com/jetstack/cert-manager/pkg/controller/test"
-	"github.com/jetstack/cert-manager/pkg/util/pki"
-	"github.com/jetstack/cert-manager/test/unit/gen"
+	internalvault "github.com/cert-manager/cert-manager/internal/vault"
+	fakevault "github.com/cert-manager/cert-manager/internal/vault/fake"
+	apiutil "github.com/cert-manager/cert-manager/pkg/api/util"
+	"github.com/cert-manager/cert-manager/pkg/apis/certmanager"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	"github.com/cert-manager/cert-manager/pkg/controller"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificaterequests"
+	testpkg "github.com/cert-manager/cert-manager/pkg/controller/test"
+	"github.com/cert-manager/cert-manager/pkg/util/pki"
+	"github.com/cert-manager/cert-manager/test/unit/gen"
 )
 
 var (
@@ -522,7 +523,7 @@ func runTest(t *testing.T, test testT) {
 	test.builder.Init()
 	defer test.builder.Stop()
 
-	vault := NewVault(test.builder.Context)
+	vault := NewVault(test.builder.Context).(*Vault)
 
 	if test.fakeVault != nil {
 		vault.vaultClientBuilder = func(ns string, sl corelisters.SecretLister,
@@ -531,7 +532,11 @@ func runTest(t *testing.T, test testT) {
 		}
 	}
 
-	controller := certificaterequests.New(apiutil.IssuerVault, vault)
+	controller := certificaterequests.New(
+		apiutil.IssuerVault,
+		func(*controller.Context) certificaterequests.Issuer { return vault },
+	)
+
 	if _, _, err := controller.Register(test.builder.Context); err != nil {
 		t.Errorf("failed to register context with controller: %v", err)
 	}

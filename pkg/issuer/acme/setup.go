@@ -29,15 +29,15 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/jetstack/cert-manager/pkg/acme"
-	"github.com/jetstack/cert-manager/pkg/acme/accounts"
-	"github.com/jetstack/cert-manager/pkg/acme/client"
-	apiutil "github.com/jetstack/cert-manager/pkg/api/util"
-	v1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	logf "github.com/jetstack/cert-manager/pkg/logs"
-	"github.com/jetstack/cert-manager/pkg/util/errors"
-	"github.com/jetstack/cert-manager/pkg/util/pki"
+	"github.com/cert-manager/cert-manager/pkg/acme"
+	"github.com/cert-manager/cert-manager/pkg/acme/accounts"
+	"github.com/cert-manager/cert-manager/pkg/acme/client"
+	apiutil "github.com/cert-manager/cert-manager/pkg/api/util"
+	v1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	logf "github.com/cert-manager/cert-manager/pkg/logs"
+	"github.com/cert-manager/cert-manager/pkg/util/errors"
+	"github.com/cert-manager/cert-manager/pkg/util/pki"
 )
 
 const (
@@ -126,7 +126,7 @@ func (a *Acme) Setup(ctx context.Context) error {
 		msg = wrapErr.Error()
 		// TODO: we should not re-queue the Issuer here as a resync will happen
 		// when the user adds the Secret or changes Issuer's spec. Should be
-		// fixed by https://github.com/jetstack/cert-manager/issues/4004
+		// fixed by https://github.com/cert-manager/cert-manager/issues/4004
 		return wrapErr
 
 	case errors.IsInvalidData(err):
@@ -156,7 +156,7 @@ func (a *Acme) Setup(ctx context.Context) error {
 	// this function.
 	a.accountRegistry.RemoveClient(string(a.issuer.GetUID()))
 	httpClient := accounts.BuildHTTPClient(a.metrics, a.issuer.GetSpec().ACME.SkipTLSVerify)
-	cl := a.clientBuilder(httpClient, *a.issuer.GetSpec().ACME, rsaPk)
+	cl := a.clientBuilder(httpClient, *a.issuer.GetSpec().ACME, rsaPk, a.userAgent)
 
 	// TODO: perform a complex check to determine whether we need to verify
 	// the existing registration with the ACME server.
@@ -211,7 +211,7 @@ func (a *Acme) Setup(ctx context.Context) error {
 		status = cmmeta.ConditionTrue
 
 		// ensure the cached client in the account registry is up to date
-		a.accountRegistry.AddClient(httpClient, string(a.issuer.GetUID()), *a.issuer.GetSpec().ACME, rsaPk)
+		a.accountRegistry.AddClient(httpClient, string(a.issuer.GetUID()), *a.issuer.GetSpec().ACME, rsaPk, a.userAgent)
 		return nil
 	}
 
@@ -313,7 +313,7 @@ func (a *Acme) Setup(ctx context.Context) error {
 	a.issuer.GetStatus().ACMEStatus().URI = account.URI
 	a.issuer.GetStatus().ACMEStatus().LastRegisteredEmail = registeredEmail
 	// ensure the cached client in the account registry is up to date
-	a.accountRegistry.AddClient(httpClient, string(a.issuer.GetUID()), *a.issuer.GetSpec().ACME, rsaPk)
+	a.accountRegistry.AddClient(httpClient, string(a.issuer.GetUID()), *a.issuer.GetSpec().ACME, rsaPk, a.userAgent)
 
 	return nil
 }

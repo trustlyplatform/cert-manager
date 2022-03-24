@@ -20,17 +20,17 @@ import (
 	"errors"
 	"testing"
 
-	cmacme "github.com/jetstack/cert-manager/pkg/apis/acme/v1"
-	v1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	"github.com/jetstack/cert-manager/pkg/controller/test"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/acmedns"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/azuredns"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/clouddns"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/cloudflare"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/digitalocean"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/route53"
-	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/util"
-	"github.com/jetstack/cert-manager/test/unit/gen"
+	cmacme "github.com/cert-manager/cert-manager/pkg/apis/acme/v1"
+	v1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	"github.com/cert-manager/cert-manager/pkg/controller/test"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/acmedns"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/azuredns"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/clouddns"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/cloudflare"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/digitalocean"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/route53"
+	"github.com/cert-manager/cert-manager/pkg/issuer/acme/dns/util"
+	"github.com/cert-manager/cert-manager/test/unit/gen"
 )
 
 const (
@@ -99,7 +99,7 @@ func (s *solverFixture) Finish(t *testing.T, args ...interface{}) {
 }
 
 func buildFakeSolver(b *test.Builder, dnsProviders dnsProviderConstructors) *Solver {
-	b.Init()
+	b.InitWithRESTConfig()
 	s := &Solver{
 		Context:                 b.Context,
 		secretLister:            b.Context.KubeSharedInformerFactory.Core().V1().Secrets().Lister(),
@@ -132,14 +132,14 @@ func newFakeDNSProviders() *fakeDNSProviders {
 			f.call("clouddns", project, serviceAccount, util.RecursiveNameservers, ambient, hostedZoneName)
 			return nil, nil
 		},
-		cloudFlare: func(email, apikey, apiToken string, dns01Nameservers []string) (*cloudflare.DNSProvider, error) {
+		cloudFlare: func(email, apikey, apiToken string, dns01Nameservers []string, userAgent string) (*cloudflare.DNSProvider, error) {
 			f.call("cloudflare", email, apikey, apiToken, util.RecursiveNameservers)
 			if email == "" || (apikey == "" && apiToken == "") {
 				return nil, errors.New("invalid email or apikey or apitoken")
 			}
 			return nil, nil
 		},
-		route53: func(accessKey, secretKey, hostedZoneID, region, role string, ambient bool, dns01Nameservers []string) (*route53.DNSProvider, error) {
+		route53: func(accessKey, secretKey, hostedZoneID, region, role string, ambient bool, dns01Nameservers []string, userAgent string) (*route53.DNSProvider, error) {
 			f.call("route53", accessKey, secretKey, hostedZoneID, region, role, ambient, util.RecursiveNameservers)
 			return nil, nil
 		},

@@ -14,14 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package secretsmanager
+package internal
 
 import (
-	"bytes"
 	"context"
-	"encoding/pem"
+	"crypto/x509"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,16 +28,14 @@ import (
 	applymetav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/rest"
 
-	"github.com/jetstack/cert-manager/internal/controller/feature"
-	apiutil "github.com/jetstack/cert-manager/pkg/api/util"
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	logf "github.com/jetstack/cert-manager/pkg/logs"
-	"github.com/jetstack/cert-manager/pkg/util"
-	utilfeature "github.com/jetstack/cert-manager/pkg/util/feature"
-	utilpki "github.com/jetstack/cert-manager/pkg/util/pki"
+	"github.com/cert-manager/cert-manager/internal/controller/certificates"
+	"github.com/cert-manager/cert-manager/internal/controller/feature"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	logf "github.com/cert-manager/cert-manager/pkg/logs"
+	utilfeature "github.com/cert-manager/cert-manager/pkg/util/feature"
+	utilpki "github.com/cert-manager/cert-manager/pkg/util/pki"
 )
 
 var (
@@ -51,9 +47,8 @@ type SecretsManager struct {
 	secretClient coreclient.SecretsGetter
 	secretLister corelisters.SecretLister
 
-	// userAgent is the Kubernetes client's user agent. This is used for setting
-	// the field manager when Applying Secrets.
-	userAgent string
+	// fieldManager is the manager name used for the Apply operations on Secrets.
+	fieldManager string
 
 	// if true, Secret resources created by the controller will have an
 	// 'owner reference' set, meaning when the Certificate is deleted, the
@@ -67,19 +62,19 @@ type SecretData struct {
 	PrivateKey, Certificate, CA []byte
 }
 
-// New returns a new SecretsManager. Setting enableSecretOwnerReferences to
-// true will mean that secrets will be deleted when the corresponding
-// Certificate is deleted.
-func New(
+// NewSecretsManager returns a new SecretsManager. Setting
+// enableSecretOwnerReferences to true will mean that secrets will be deleted
+// when the corresponding Certificate is deleted.
+func NewSecretsManager(
 	secretClient coreclient.SecretsGetter,
 	secretLister corelisters.SecretLister,
-	restConfig *rest.Config,
+	fieldManager string,
 	enableSecretOwnerReferences bool,
 ) *SecretsManager {
 	return &SecretsManager{
 		secretClient:                secretClient,
 		secretLister:                secretLister,
-		userAgent:                   util.PrefixFromUserAgent(restConfig.UserAgent),
+		fieldManager:                fieldManager,
 		enableSecretOwnerReferences: enableSecretOwnerReferences,
 	}
 }
@@ -102,7 +97,7 @@ func (s *SecretsManager) UpdateData(ctx context.Context, crt *cmapi.Certificate,
 	}
 
 	// Build Secret apply configuration and options.
-	applyOpts := metav1.ApplyOptions{FieldManager: s.userAgent}
+	applyOpts := metav1.ApplyOptions{FieldManager: s.fieldManager, Force: true}
 	applyCnf := applycorev1.Secret(secret.Name, secret.Namespace).
 		WithAnnotations(secret.Annotations).WithLabels(secret.Labels).
 		WithData(secret.Data).WithType(secret.Type)
@@ -121,48 +116,12 @@ func (s *SecretsManager) UpdateData(ctx context.Context, crt *cmapi.Certificate,
 
 	log.V(logf.DebugLevel).Info("applying secret")
 
-	// Apply secret resource. Don't force apply first, so we can catch the error
-	// and log it.
 	_, err = s.secretClient.Secrets(secret.Namespace).Apply(ctx, applyCnf, applyOpts)
-	if apierrors.IsConflict(err) {
-		log.Error(err, "forcing apply due to field management conflict")
-		applyOpts.Force = true
-		_, err = s.secretClient.Secrets(secret.Namespace).Apply(ctx, applyCnf, applyOpts)
-	}
-
 	if err != nil {
 		return fmt.Errorf("failed to apply secret %s/%s: %w", secret.Namespace, secret.Name, err)
 	}
 
-	return err
-}
-
-// SecretCertificateAnnotations returns a map which should be set on all
-// Certificate Secret's Annotations, containing information about the Issuer
-// and Certificate.
-func SecretCertificateAnnotations(crt *cmapi.Certificate, data SecretData) (map[string]string, error) {
-	annotations := make(map[string]string)
-
-	annotations[cmapi.CertificateNameKey] = crt.Name
-	annotations[cmapi.IssuerNameAnnotationKey] = crt.Spec.IssuerRef.Name
-	annotations[cmapi.IssuerKindAnnotationKey] = apiutil.IssuerKind(crt.Spec.IssuerRef)
-	annotations[cmapi.IssuerGroupAnnotationKey] = crt.Spec.IssuerRef.Group
-
-	// Only add certificate data if it exists
-	if len(data.Certificate) > 0 {
-		x509Cert, err := utilpki.DecodeX509CertificateBytes(data.Certificate)
-		// TODO: handle InvalidData here?
-		if err != nil {
-			return nil, err
-		}
-
-		annotations[cmapi.CommonNameAnnotationKey] = x509Cert.Subject.CommonName
-		annotations[cmapi.AltNamesAnnotationKey] = strings.Join(x509Cert.DNSNames, ",")
-		annotations[cmapi.IPSANAnnotationKey] = strings.Join(utilpki.IPAddressesToString(x509Cert.IPAddresses), ",")
-		annotations[cmapi.URISANAnnotationKey] = strings.Join(utilpki.URLsToString(x509Cert.URIs), ",")
-	}
-
-	return annotations, nil
+	return nil
 }
 
 // setValues will update the Secret resource 'secret' with the data contained
@@ -191,14 +150,17 @@ func (s *SecretsManager) setValues(crt *cmapi.Certificate, secret *corev1.Secret
 		secret.Data[cmmeta.TLSCAKey] = data.CA
 	}
 
-	annotations, err := SecretCertificateAnnotations(crt, data)
-	if err != nil {
-		return fmt.Errorf("failed to build Secret annotations: %w", err)
+	var certificate *x509.Certificate
+	if len(data.Certificate) > 0 {
+		var err error
+		certificate, err = utilpki.DecodeX509CertificateBytes(data.Certificate)
+		// TODO: handle InvalidData here?
+		if err != nil {
+			return err
+		}
 	}
 
-	if secret.Annotations == nil {
-		secret.Annotations = make(map[string]string)
-	}
+	secret.Annotations = certificates.AnnotationsForCertificateSecret(crt, certificate)
 	if secret.Labels == nil {
 		secret.Labels = make(map[string]string)
 	}
@@ -210,10 +172,6 @@ func (s *SecretsManager) setValues(crt *cmapi.Certificate, secret *corev1.Secret
 		for k, v := range crt.Spec.SecretTemplate.Annotations {
 			secret.Annotations[k] = v
 		}
-	}
-
-	for k, v := range annotations {
-		secret.Annotations[k] = v
 	}
 
 	return nil
@@ -323,17 +281,16 @@ func (s *SecretsManager) setKeystores(crt *cmapi.Certificate, secret *corev1.Sec
 // setAdditionalOutputFormat will set extra Secret Data keys with additional
 // output formats according to any OutputFormats which have been configured.
 func setAdditionalOutputFormats(crt *cmapi.Certificate, secret *corev1.Secret, data SecretData) error {
-	for _, f := range crt.Spec.AdditionalOutputFormats {
-		switch f.Type {
+	for _, format := range crt.Spec.AdditionalOutputFormats {
+		switch format.Type {
 		case cmapi.CertificateOutputFormatDER:
 			// Store binary format of the private key
-			block, _ := pem.Decode(data.PrivateKey)
-			secret.Data[cmapi.CertificateOutputFormatDERKey] = block.Bytes
+			secret.Data[cmapi.CertificateOutputFormatDERKey] = certificates.OutputFormatDER(data.PrivateKey)
 		case cmapi.CertificateOutputFormatCombinedPEM:
 			// Combine tls.key and tls.crt
-			secret.Data[cmapi.CertificateOutputFormatCombinedPEMKey] = bytes.Join([][]byte{data.PrivateKey, data.Certificate}, []byte("\n"))
+			secret.Data[cmapi.CertificateOutputFormatCombinedPEMKey] = certificates.OutputFormatCombinedPEM(data.PrivateKey, data.Certificate)
 		default:
-			return fmt.Errorf("unknown additional output format %s", f.Type)
+			return fmt.Errorf("unknown additional output format %s", format.Type)
 		}
 	}
 

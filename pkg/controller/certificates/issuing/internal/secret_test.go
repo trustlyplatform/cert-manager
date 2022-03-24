@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package secretsmanager
+package internal
 
 import (
 	"context"
@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jetstack/cert-manager/internal/controller/feature"
-	testpkg "github.com/jetstack/cert-manager/pkg/controller/test"
-	utilfeature "github.com/jetstack/cert-manager/pkg/util/feature"
+	"github.com/cert-manager/cert-manager/internal/controller/feature"
+	testpkg "github.com/cert-manager/cert-manager/pkg/controller/test"
+	utilfeature "github.com/cert-manager/cert-manager/pkg/util/feature"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,19 +34,18 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	applycorev1 "k8s.io/client-go/applyconfigurations/core/v1"
 	applymetav1 "k8s.io/client-go/applyconfigurations/meta/v1"
-	"k8s.io/client-go/rest"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	fakeclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/pointer"
 
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	controllerpkg "github.com/jetstack/cert-manager/pkg/controller"
-	internaltest "github.com/jetstack/cert-manager/pkg/controller/certificates/internal/test"
-	utilpki "github.com/jetstack/cert-manager/pkg/util/pki"
-	testcoreclients "github.com/jetstack/cert-manager/test/unit/coreclients"
-	"github.com/jetstack/cert-manager/test/unit/gen"
-	testcorelisters "github.com/jetstack/cert-manager/test/unit/listers"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	controllerpkg "github.com/cert-manager/cert-manager/pkg/controller"
+	utilpki "github.com/cert-manager/cert-manager/pkg/util/pki"
+	testcoreclients "github.com/cert-manager/cert-manager/test/unit/coreclients"
+	testcrypto "github.com/cert-manager/cert-manager/test/unit/crypto"
+	"github.com/cert-manager/cert-manager/test/unit/gen"
+	testcorelisters "github.com/cert-manager/cert-manager/test/unit/listers"
 )
 
 var (
@@ -69,7 +68,7 @@ func Test_SecretsManager(t *testing.T) {
 		gen.SetCertificateDNSNames("example.com"),
 		gen.SetCertificateUID(apitypes.UID("test-uid")),
 	)
-	baseCertBundle := internaltest.MustCreateCryptoBundle(t, gen.CertificateFrom(baseCert,
+	baseCertBundle := testcrypto.MustCreateCryptoBundle(t, gen.CertificateFrom(baseCert,
 		gen.SetCertificateDNSNames("example.com"),
 	), fixedClock)
 
@@ -147,7 +146,7 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeTLS)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -183,7 +182,7 @@ func Test_SecretsManager(t *testing.T) {
 						})
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -228,7 +227,7 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeTLS)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -278,7 +277,7 @@ func Test_SecretsManager(t *testing.T) {
 						})
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -325,7 +324,7 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeTLS)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -369,7 +368,7 @@ func Test_SecretsManager(t *testing.T) {
 						})
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -406,7 +405,7 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeTLS)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -443,7 +442,7 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeTLS)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -481,7 +480,7 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeTLS)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -534,7 +533,7 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeOpaque)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -588,7 +587,7 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeOpaque)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
 					return nil, nil
@@ -642,32 +641,9 @@ func Test_SecretsManager(t *testing.T) {
 						WithType(corev1.SecretTypeOpaque)
 					assert.Equal(t, expCnf, gotCnf)
 
-					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test"}
+					expOpts := metav1.ApplyOptions{FieldManager: "cert-manager-test", Force: true}
 					assert.Equal(t, expOpts, gotOpts)
 
-					return nil, nil
-				}
-			},
-			expectedErr: false,
-		},
-		"if apply conflicts, expect a secret Apply call": {
-			certificateOptions: controllerpkg.CertificateOptions{EnableOwnerRef: true},
-			certificate:        baseCertWithSecretTemplate,
-			existingSecret:     nil,
-			secretData:         SecretData{Certificate: baseCertBundle.CertBytes, CA: []byte("test-ca"), PrivateKey: []byte("test-key")},
-			applyFn: func(t *testing.T) testcoreclients.ApplyFn {
-				call := 0
-				t.Cleanup(func() {
-					assert.Equal(t, 2, call, "expect apply call to execute twice")
-				})
-				return func(_ context.Context, gotCnf *applycorev1.SecretApplyConfiguration, gotOpts metav1.ApplyOptions) (*corev1.Secret, error) {
-					defer func() {
-						call++
-					}()
-
-					if call == 0 {
-						return nil, apierrors.NewConflict(corev1.Resource("secret"), "conflict on field", errors.New("test"))
-					}
 					return nil, nil
 				}
 			},
@@ -701,9 +677,9 @@ func Test_SecretsManager(t *testing.T) {
 			}
 			secretLister := testcorelisters.NewFakeSecretLister(mod)
 
-			testManager := New(
+			testManager := NewSecretsManager(
 				secretClient, secretLister,
-				&rest.Config{UserAgent: "cert-manager-test"},
+				"cert-manager-test",
 				test.certificateOptions.EnableOwnerRef,
 			)
 
@@ -788,7 +764,7 @@ func Test_getCertificateSecret(t *testing.T) {
 			s := SecretsManager{
 				secretClient: builder.Client.CoreV1(),
 				secretLister: builder.KubeSharedInformerFactory.Core().V1().Secrets().Lister(),
-				userAgent:    "cert-manager-test",
+				fieldManager: "cert-manager-test",
 			}
 
 			builder.Start()
@@ -798,67 +774,6 @@ func Test_getCertificateSecret(t *testing.T) {
 			assert.NoError(t, err)
 
 			assert.Equal(t, test.expSecret, gotSecret, "unexpected returned secret")
-		})
-	}
-}
-
-func Test_SecretCertificateAnnotations(t *testing.T) {
-	baseCertBundle := internaltest.MustCreateCryptoBundle(t, gen.Certificate("test-certificate",
-		gen.SetCertificateCommonName("cert-manager"),
-		gen.SetCertificateDNSNames("example.com", "cert-manager.io"),
-		gen.SetCertificateIPs("1.1.1.1", "1.2.3.4"),
-		gen.SetCertificateURIs("spiffe.io//cert-manager.io/test", "spiffe.io//hello.world"),
-	), fixedClock)
-
-	tests := map[string]struct {
-		crt            *cmapi.Certificate
-		data           SecretData
-		expAnnotations map[string]string
-		expError       bool
-	}{
-		"if data contains valid certificate, expect all Annotations to be present": {
-			crt: gen.CertificateFrom(baseCertBundle.Certificate,
-				gen.SetCertificateIssuer(cmmeta.ObjectReference{Name: "another-test-issuer", Kind: "GoogleCASIssuer", Group: "my-group.hello.world"}),
-			),
-			data: SecretData{Certificate: baseCertBundle.CertBytes},
-			expAnnotations: map[string]string{
-				"cert-manager.io/certificate-name": "test-certificate",
-				"cert-manager.io/issuer-name":      "another-test-issuer",
-				"cert-manager.io/issuer-kind":      "GoogleCASIssuer",
-				"cert-manager.io/issuer-group":     "my-group.hello.world",
-				"cert-manager.io/common-name":      "cert-manager",
-				"cert-manager.io/alt-names":        "example.com,cert-manager.io",
-				"cert-manager.io/ip-sans":          "1.1.1.1,1.2.3.4",
-				"cert-manager.io/uri-sans":         "spiffe.io//cert-manager.io/test,spiffe.io//hello.world",
-			},
-			expError: false,
-		},
-		"if no certificate data, then expect no X.509 related annotations": {
-			crt: gen.Certificate("test-certificate",
-				gen.SetCertificateIssuer(cmmeta.ObjectReference{Name: "test-issuer", Kind: "", Group: "cert-manager.io"}),
-			),
-			data: SecretData{Certificate: nil},
-			expAnnotations: map[string]string{
-				"cert-manager.io/certificate-name": "test-certificate",
-				"cert-manager.io/issuer-name":      "test-issuer",
-				"cert-manager.io/issuer-kind":      "Issuer",
-				"cert-manager.io/issuer-group":     "cert-manager.io",
-			},
-			expError: false,
-		},
-		"if data contains invalid certificate data, expect error": {
-			crt:            gen.Certificate("test-certificate"),
-			data:           SecretData{Certificate: []byte("invalid data")},
-			expAnnotations: nil,
-			expError:       true,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			gotAnnotations, gotErr := SecretCertificateAnnotations(test.crt, test.data)
-			assert.Equal(t, test.expError, gotErr != nil, "%v", gotErr)
-			assert.Equal(t, test.expAnnotations, gotAnnotations)
 		})
 	}
 }

@@ -26,10 +26,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	cmacme "github.com/jetstack/cert-manager/internal/apis/acme"
-	"github.com/jetstack/cert-manager/internal/apis/certmanager"
-	"github.com/jetstack/cert-manager/internal/apis/certmanager/validation/util"
-	cmmeta "github.com/jetstack/cert-manager/internal/apis/meta"
+	cmacme "github.com/cert-manager/cert-manager/internal/apis/acme"
+	"github.com/cert-manager/cert-manager/internal/apis/certmanager"
+	"github.com/cert-manager/cert-manager/internal/apis/certmanager/validation/util"
+	cmmeta "github.com/cert-manager/cert-manager/internal/apis/meta"
 )
 
 // Validation functions for cert-manager Issuer types.
@@ -226,7 +226,7 @@ func ValidateSelfSignedIssuerConfig(iss *certmanager.SelfSignedIssuer, fldPath *
 
 func ValidateVaultIssuerConfig(iss *certmanager.VaultIssuer, fldPath *field.Path) field.ErrorList {
 	el := field.ErrorList{}
-	if len(iss.Server) == 0 {
+	if len(iss.Server) == 0 && iss.Auth.Env == nil {
 		el = append(el, field.Required(fldPath.Child("server"), ""))
 	}
 	if len(iss.Path) == 0 {

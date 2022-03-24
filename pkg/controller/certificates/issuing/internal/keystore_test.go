@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package secretsmanager
+package internal
 
 import (
 	"bytes"
@@ -32,8 +32,8 @@ import (
 	"golang.org/x/sync/semaphore"
 	"software.sslmate.com/src/go-pkcs12"
 
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	"github.com/jetstack/cert-manager/pkg/util/pki"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	"github.com/cert-manager/cert-manager/pkg/util/pki"
 )
 
 func mustGeneratePrivateKey(t *testing.T, encoding cmapi.PrivateKeyEncoding) []byte {

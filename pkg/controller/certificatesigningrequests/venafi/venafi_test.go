@@ -36,18 +36,19 @@ import (
 	coretesting "k8s.io/client-go/testing"
 	fakeclock "k8s.io/utils/clock/testing"
 
-	apiutil "github.com/jetstack/cert-manager/pkg/api/util"
-	"github.com/jetstack/cert-manager/pkg/apis/certmanager"
-	cmapi "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
-	cmmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
-	"github.com/jetstack/cert-manager/pkg/controller/certificatesigningrequests"
-	"github.com/jetstack/cert-manager/pkg/controller/certificatesigningrequests/util"
-	testpkg "github.com/jetstack/cert-manager/pkg/controller/test"
-	venaficlient "github.com/jetstack/cert-manager/pkg/issuer/venafi/client"
-	venafiapi "github.com/jetstack/cert-manager/pkg/issuer/venafi/client/api"
-	fakevenaficlient "github.com/jetstack/cert-manager/pkg/issuer/venafi/client/fake"
-	"github.com/jetstack/cert-manager/pkg/util/pki"
-	"github.com/jetstack/cert-manager/test/unit/gen"
+	apiutil "github.com/cert-manager/cert-manager/pkg/api/util"
+	"github.com/cert-manager/cert-manager/pkg/apis/certmanager"
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	"github.com/cert-manager/cert-manager/pkg/controller"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificatesigningrequests"
+	"github.com/cert-manager/cert-manager/pkg/controller/certificatesigningrequests/util"
+	testpkg "github.com/cert-manager/cert-manager/pkg/controller/test"
+	venaficlient "github.com/cert-manager/cert-manager/pkg/issuer/venafi/client"
+	venafiapi "github.com/cert-manager/cert-manager/pkg/issuer/venafi/client/api"
+	fakevenaficlient "github.com/cert-manager/cert-manager/pkg/issuer/venafi/client/fake"
+	"github.com/cert-manager/cert-manager/pkg/util/pki"
+	"github.com/cert-manager/cert-manager/test/unit/gen"
 )
 
 var (
@@ -887,10 +888,13 @@ func TestProcessItem(t *testing.T) {
 
 			defer test.builder.Stop()
 
-			venafi := NewVenafi(test.builder.Context)
+			venafi := NewVenafi(test.builder.Context).(*Venafi)
 			venafi.clientBuilder = test.clientBuilder
 
-			controller := certificatesigningrequests.New(apiutil.IssuerVenafi, venafi)
+			controller := certificatesigningrequests.New(
+				apiutil.IssuerVenafi,
+				func(*controller.Context) certificatesigningrequests.Signer { return venafi },
+			)
 			controller.Register(test.builder.Context)
 			test.builder.Start()
 
