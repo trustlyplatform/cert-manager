@@ -36,13 +36,15 @@ const (
 	messageVaultClientInitFailed         = "Failed to initialize Vault client: "
 	messageVaultStatusVerificationFailed = "Vault is not initialized or is sealed"
 	messageVaultConfigRequired           = "Vault config cannot be empty"
-	messageServerAndPathRequired         = "Vault server and path are required fields"
-	messageAuthFieldsRequired            = "Vault tokenSecretRef, appRole, or kubernetes is required"
+	messageServerRequired                = "Vault server is a required field when not using env config auth"
+	messagePathRequired                  = "Vault path is a required field"
+	messageAuthFieldsRequired            = "Vault tokenSecretRef, appRole, kubernetes, or env is required"
 	messageMultipleAuthFieldsSet         = "Multiple auth methods cannot be set on the same Vault issuer"
 
-	messageKubeAuthFieldsRequired    = "Vault Kubernetes auth requires both role and secretRef.name"
-	messageTokenAuthNameRequired     = "Vault Token auth requires tokenSecretRef.name"
-	messageAppRoleAuthFieldsRequired = "Vault AppRole auth requires both roleId and tokenSecretRef.name"
+	messageKubeAuthFieldsRequired      = "Vault Kubernetes auth requires both role and secretRef.name"
+	messageTokenAuthNameRequired       = "Vault Token auth requires tokenSecretRef.name"
+	messageAppRoleAuthFieldsRequired   = "Vault AppRole auth requires both roleId and tokenSecretRef.name"
+	messageEnvConfigAuthFieldsRequired = "Vault Env Config auth requires both mountPath and additionalData to be set"
 )
 
 // Setup creates a new Vault client and attempts to authenticate with the Vault instance and sets the issuer's conditions to reflect the success of the setup.
@@ -53,20 +55,27 @@ func (v *Vault) Setup(ctx context.Context) error {
 		return nil
 	}
 
-	// check if Vault server info is specified.
-	if v.issuer.GetSpec().Vault.Server == "" ||
-		v.issuer.GetSpec().Vault.Path == "" {
-		logf.V(logf.WarnLevel).Infof("%s: %s", v.issuer.GetObjectMeta().Name, messageServerAndPathRequired)
-		apiutil.SetIssuerCondition(v.issuer, v.issuer.GetGeneration(), v1.IssuerConditionReady, cmmeta.ConditionFalse, errorVault, messageServerAndPathRequired)
-		return nil
-	}
-
 	tokenAuth := v.issuer.GetSpec().Vault.Auth.TokenSecretRef
 	appRoleAuth := v.issuer.GetSpec().Vault.Auth.AppRole
 	kubeAuth := v.issuer.GetSpec().Vault.Auth.Kubernetes
+	envAuth := v.issuer.GetSpec().Vault.Auth.Env
+
+	// check if Vault server info is specified.
+	if v.issuer.GetSpec().Vault.Server == "" && envAuth == nil {
+		logf.V(logf.WarnLevel).Infof("%s: %s", v.issuer.GetObjectMeta().Name, messageServerRequired)
+		apiutil.SetIssuerCondition(v.issuer, v.issuer.GetGeneration(), v1.IssuerConditionReady, cmmeta.ConditionFalse, errorVault, messageServerRequired)
+		return nil
+	}
+
+	// check if Vault path info is specified.
+	if v.issuer.GetSpec().Vault.Path == "" {
+		logf.V(logf.WarnLevel).Infof("%s: %s", v.issuer.GetObjectMeta().Name, messagePathRequired)
+		apiutil.SetIssuerCondition(v.issuer, v.issuer.GetGeneration(), v1.IssuerConditionReady, cmmeta.ConditionFalse, errorVault, messagePathRequired)
+		return nil
+	}
 
 	// check if at least one auth method is specified.
-	if tokenAuth == nil && appRoleAuth == nil && kubeAuth == nil {
+	if tokenAuth == nil && appRoleAuth == nil && kubeAuth == nil && envAuth == nil {
 		logf.V(logf.WarnLevel).Infof("%s: %s", v.issuer.GetObjectMeta().Name, messageAuthFieldsRequired)
 		apiutil.SetIssuerCondition(v.issuer, v.issuer.GetGeneration(), v1.IssuerConditionReady, cmmeta.ConditionFalse, errorVault, messageAuthFieldsRequired)
 		return nil
@@ -99,6 +108,13 @@ func (v *Vault) Setup(ctx context.Context) error {
 	if kubeAuth != nil && (len(kubeAuth.SecretRef.Name) == 0 || len(kubeAuth.Role) == 0) {
 		logf.V(logf.WarnLevel).Infof("%s: %s", v.issuer.GetObjectMeta().Name, messageKubeAuthFieldsRequired)
 		apiutil.SetIssuerCondition(v.issuer, v.issuer.GetGeneration(), v1.IssuerConditionReady, cmmeta.ConditionFalse, errorVault, messageKubeAuthFieldsRequired)
+		return nil
+	}
+
+	// check if all mandatory Vault Environment Config fields are set.
+	if envAuth != nil && (len(envAuth.AdditionalData) == 0 || len(envAuth.Path) == 0) {
+		logf.V(logf.WarnLevel).Infof("%s: %s", v.issuer.GetObjectMeta().Name, messageEnvConfigAuthFieldsRequired)
+		apiutil.SetIssuerCondition(v.issuer, v.issuer.GetGeneration(), v1.IssuerConditionReady, cmmeta.ConditionFalse, errorVault, messageEnvConfigAuthFieldsRequired)
 		return nil
 	}
 

@@ -226,7 +226,7 @@ func ValidateSelfSignedIssuerConfig(iss *certmanager.SelfSignedIssuer, fldPath *
 
 func ValidateVaultIssuerConfig(iss *certmanager.VaultIssuer, fldPath *field.Path) field.ErrorList {
 	el := field.ErrorList{}
-	if len(iss.Server) == 0 {
+	if len(iss.Server) == 0 && iss.Auth.Env == nil {
 		el = append(el, field.Required(fldPath.Child("server"), ""))
 	}
 	if len(iss.Path) == 0 {
