@@ -178,12 +178,25 @@ func (v *Vault) setToken(client Client) error {
 		return nil
 	}
 
-	return fmt.Errorf("error initializing Vault client: tokenSecretRef, appRoleSecretRef, or Kubernetes auth role not set")
+	envConfigAuth := v.issuer.GetSpec().Vault.Auth.Env
+	if envConfigAuth != nil {
+		token, err := v.requestTokenWithEnvAuth(client, envConfigAuth)
+		if err != nil {
+			return err
+		}
+		client.SetToken(token)
+		return nil
+	}
+
+	return fmt.Errorf("error initializing Vault client: tokenSecretRef, appRoleSecretRef, Kubernetes auth role, or env config not set")
 }
 
 func (v *Vault) newConfig() (*vault.Config, error) {
 	cfg := vault.DefaultConfig()
-	cfg.Address = v.issuer.GetSpec().Vault.Server
+
+	if serverAddr := v.issuer.GetSpec().Vault.Server; serverAddr != "" {
+		cfg.Address = serverAddr
+	}
 
 	certs := v.issuer.GetSpec().Vault.CABundle
 	if len(certs) == 0 {
@@ -326,6 +339,36 @@ func (v *Vault) requestTokenWithKubernetesAuth(client Client, kubernetesAuth *v1
 	request := client.NewRequest("POST", url)
 	err = request.SetJSONBody(parameters)
 	if err != nil {
+		return "", fmt.Errorf("error encoding Vault parameters: %s", err.Error())
+	}
+
+	v.addVaultNamespaceToRequest(request)
+
+	resp, err := client.RawRequest(request)
+	if err != nil {
+		return "", fmt.Errorf("error calling Vault server: %s", err.Error())
+	}
+
+	defer resp.Body.Close()
+	vaultResult := vault.Secret{}
+	err = resp.DecodeJSON(&vaultResult)
+	if err != nil {
+		return "", fmt.Errorf("unable to decode JSON payload: %s", err.Error())
+	}
+
+	token, err := vaultResult.TokenID()
+	if err != nil {
+		return "", fmt.Errorf("unable to read token: %s", err.Error())
+	}
+
+	return token, nil
+}
+
+func (v *Vault) requestTokenWithEnvAuth(client Client, envAuth *v1.VaultEnvAuth) (string, error) {
+	url := filepath.Join(envAuth.Path, "login")
+	request := client.NewRequest("POST", url)
+
+	if err := request.SetJSONBody(envAuth.AdditionalData); err != nil {
 		return "", fmt.Errorf("error encoding Vault parameters: %s", err.Error())
 	}
 

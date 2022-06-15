@@ -188,6 +188,7 @@ type VaultIssuer struct {
 	Auth VaultAuth `json:"auth"`
 
 	// Server is the connection address for the Vault server, e.g: "https://vault.example.com:8200".
+	// +optional
 	Server string `json:"server"`
 
 	// Path is the mount path of the Vault PKI backend's `sign` endpoint, e.g:
@@ -223,6 +224,11 @@ type VaultAuth struct {
 	// token stored in the named Secret resource to the Vault server.
 	// +optional
 	Kubernetes *VaultKubernetesAuth `json:"kubernetes,omitempty"`
+
+	// Env authenticates with Vault by using standard Vault env vars set on
+	// the pod as described here https://www.vaultproject.io/docs/commands#environment-variables
+	// +optional
+	Env *VaultEnvAuth `json:"env,omitempty"`
 }
 
 // VaultAppRole authenticates with Vault using the App Role auth mechanism,
@@ -261,6 +267,19 @@ type VaultKubernetesAuth struct {
 	// A required field containing the Vault Role to assume. A Role binds a
 	// Kubernetes ServiceAccount with a set of Vault policies.
 	Role string `json:"role"`
+}
+
+// VaultEnvAuth will use the default Vault config as configured through the vault
+// environment variables together with the specified path and key values provided.
+type VaultEnvAuth struct {
+	// The Vault mountPath here is the mount path to use when authenticating with
+	// Vault. For example, setting a value to `/v1/auth/foo`, will use the path
+	// `/v1/auth/foo/login` to authenticate with Vault.
+	Path string `json:"mountPath"`
+
+	// Additional data might be needed for the login method specified with path
+	// and these should be provided as key value pairs.
+	AdditionalData map[string]string `json:"additionalData"`
 }
 
 type CAIssuer struct {
